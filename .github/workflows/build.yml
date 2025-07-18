@@ -1,0 +1,61 @@
+name: Build and Deploy Keycloak JARs
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        java: [21, 24]
+        keycloak_version: ['26.3.0', '25.0.6', '24.0.5']
+
+    name: Java ${{ matrix.java }} - Keycloak:${{ matrix.keycloak_version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ matrix.java }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Set keycloak.version and java.version
+        run: |
+          mvn versions:set-property \
+            -Dproperty=keycloak.version \
+            -DnewVersion=${{ matrix.keycloak_version }} \
+            -DgenerateBackupPoms=false
+          mvn versions:set-property \
+            -Dproperty=java.version \
+            -DnewVersion=${{ matrix.java }} \
+            -DgenerateBackupPoms=false
+          mvn versions:set-property \
+            -Dproperty=project.version \
+            -DnewVersion=1.0.0-java${{ matrix.java }}-keycloak${{ matrix.keycloak_version }} \
+            -DgenerateBackupPoms=false
+
+      - name: Configure Maven settings for GitHub Packages
+        run: |
+          mkdir -p ~/.m2
+          echo "<settings>
+                  <servers>
+                    <server>
+                      <id>github</id>
+                      <username>${{ github.actor }}</username>
+                      <password>${{ secrets.GITHUB_TOKEN }}</password>
+                    </server>
+                  </servers>
+                </settings>" > ~/.m2/settings.xml
+
+      - name: Deploy to GitHub Packages
+        run: mvn deploy --batch-mode

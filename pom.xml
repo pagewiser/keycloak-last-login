@@ -6,10 +6,11 @@
 
     <groupId>com.pagewiser.keycloak</groupId>
     <artifactId>keycloak-last-login-spi</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>${project.version.base}-java${java.version}-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <properties>
+        <project.version.base>1.0.0</project.version.base>
         <java.version>21</java.version>
         <maven.compiler.source>${java.version}</maven.compiler.source>
         <maven.compiler.target>${java.version}</maven.compiler.target>
@@ -55,5 +56,13 @@
             <version>3.5.0.Final</version>
         </dependency>
     </dependencies>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/pagewiser/keycloak-last-login</url>
+        </repository>
+    </distributionManagement>
 
 </project>
