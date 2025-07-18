@@ -12,7 +12,7 @@ they successfully log in.
 
 ## Requirements
 
-* Java 21
+* Java 17
 * Maven
 * Keycloak 21 or newer
 

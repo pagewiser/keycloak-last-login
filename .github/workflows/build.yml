@@ -1,33 +1,39 @@
 name: Build and Deploy Keycloak JARs
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
+  pull_request:
+    branches:
+      - master  # only run on PRs targeting master
 
 permissions:
   contents: read
   packages: write
 
 jobs:
-  deploy:
+  test-and-analyze:
     runs-on: ubuntu-latest
-
+    permissions:
+      pull-requests: write
     strategy:
       matrix:
-        java: [21, 24]
-        keycloak_version: ['26.3.0', '25.0.6', '24.0.5']
-
-    name: Java ${{ matrix.java }} - Keycloak:${{ matrix.keycloak_version }}
-
+        keycloak_version: ['26.3.0', '24.0.5', '21.1.2']
+    name: Build for Keycloak:${{ matrix.keycloak_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch all branches and tags
+        run: git fetch --all --tags --prune
 
-      - name: Set up Java ${{ matrix.java }}
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: ${{ matrix.java }}
+          java-version: 17
 
       - name: Set keycloak.version and java.version
         run: |
@@ -35,13 +41,80 @@ jobs:
             -Dproperty=keycloak.version \
             -DnewVersion=${{ matrix.keycloak_version }} \
             -DgenerateBackupPoms=false
+
+      - name: Run tests
+        run: mvn test package org.jacoco:jacoco-maven-plugin:report
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-keycloak${{ matrix.keycloak_version }}
+          path: '**/target/surefire-reports/*.xml'
+
+      - name: Report test results to PR
+        if: github.event_name == 'pull_request'
+        uses: dorny/test-reporter@v2.1.1
+        with:
+          name: Maven Tests - Keycloak ${{ matrix.keycloak_version }}
+          path: '**/target/surefire-reports/*.xml'
+          reporter: java-junit
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-keycloak${{ matrix.keycloak_version }}
+          path: 'target/*.jar'
+          retention-days: 1
+
+  sonarqube:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Run tests
+        run: mvn test org.jacoco:jacoco-maven-plugin:report
+
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@v2
+        with:
+          projectBaseDir: .
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+  deploy:
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    needs: test-and-analyze
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        keycloak_version: ['26.3.0', '24.0.5', '21.1.2']
+    name: Deploy Java 17 - Keycloak:${{ matrix.keycloak_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set keycloak.version and java.version
+        run: |
           mvn versions:set-property \
-            -Dproperty=java.version \
-            -DnewVersion=${{ matrix.java }} \
-            -DgenerateBackupPoms=false
-          mvn versions:set-property \
-            -Dproperty=project.version \
-            -DnewVersion=1.0.0-java${{ matrix.java }}-keycloak${{ matrix.keycloak_version }} \
+            -Dproperty=keycloak.version \
+            -DnewVersion=${{ matrix.keycloak_version }} \
             -DgenerateBackupPoms=false
 
       - name: Configure Maven settings for GitHub Packages
@@ -58,4 +131,4 @@ jobs:
                 </settings>" > ~/.m2/settings.xml
 
       - name: Deploy to GitHub Packages
-        run: mvn deploy --batch-mode
+        run: mvn deploy
